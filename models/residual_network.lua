@@ -1,6 +1,5 @@
 require 'nn'
 
-
 -- easy for debugging, coz provide opt.is_batch_norm paramters
 if not opt then 
     cmd = torch.CmdLine() 
@@ -38,7 +37,16 @@ function make_residual_block(nfin, nfout, half, is_batch_norm)
     if half == false then 
          residual_block_par2 = nn.Identity() 
     else 
-         residual_block_par2 = nn.SpatialConvolution(nfin, nfout, 1, 1, 2, 2, 0, 0) -- no pad
+         --choice 1: residual_block_par2 = nn.SpatialConvolution(nfin, nfout, 1, 1, 2, 2, 0, 0) -- no pad
+         -- choice 2: 
+         -- downsampling 
+         residual_block_par2 = nn.Sequential() 
+         residual_block_par2:add(nn.SpatialAveragePooling(1, 1, 2, 2))
+
+         if nfout > nfin then 
+                residual_block_par2:add(nn.Padding(1, (nfout - nfin), 3))
+         end 
+    
     end 
    
     residual_block_cat:add(residual_block_par1)
