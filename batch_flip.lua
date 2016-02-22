@@ -8,6 +8,7 @@ function BatchFlip:__init()
     self.train = true
     -- zero padding 4 pixels along each side for simple data argumentation 
     self.module = nn.SpatialZeroPadding(4, 4, 4, 4)
+    self.output = torch.Tensor()
 end
 
 function BatchFlip:updateOutput(input)
@@ -22,11 +23,12 @@ function BatchFlip:updateOutput(input)
 
         self.temp = self.module:forward(input)
    
-        -- crop out a 3 x 32 x 32 images 
-        local start_x = torch.random(4)
-        local start_y = torch.random(4)
-
         for i = 1, self.temp:size(1) do
+           -- crop out a 3 x 32 x 32 images 
+           local start_x = torch.random(4)
+           local start_y = torch.random(4)
+
+
             image.crop(self.output[i], self.temp[i], start_x, start_y, start_x+32, start_y+32)
         end 
 
