@@ -37,8 +37,14 @@ function make_residual_block(nfin, nfout, half, is_batch_norm)
     if half == false then 
          residual_block_par2 = nn.Identity() 
     else 
-         --choice 1: residual_block_par2 = nn.SpatialConvolution(nfin, nfout, 1, 1, 2, 2, 0, 0) -- no pad
-         -- choice 2: 
+         -- choice 1: test error can achieve: 
+         residual_block_par2 = nn.Sequential() 
+         residual_block_par2:add(nn.SpatialConvolution(nfin, nfout, 1, 1, 2, 2, 0, 0)) -- no pad
+         -- whether need to add bach normalization 
+         if opt.is_batch_norm then residual_block_par2:add(nn.SpatialBatchNormalization(nfout)) end    
+
+         --[[ 
+         -- choice 2: test acc can achieve: 91.96%(using pretrained model) 
          -- downsampling 
          residual_block_par2 = nn.Sequential() 
          residual_block_par2:add(nn.SpatialAveragePooling(1, 1, 2, 2))
@@ -46,6 +52,7 @@ function make_residual_block(nfin, nfout, half, is_batch_norm)
          if nfout > nfin then 
                 residual_block_par2:add(nn.Padding(1, (nfout - nfin), 3))
          end 
+         --]]
     
     end 
    
