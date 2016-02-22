@@ -108,10 +108,14 @@ testLogger.showPlot = false
 parameters,gradParameters = model:getParameters()
 
 print(c.blue'==>' ..' configuring optimizer')
+
+-- set optimizing hyperparameters accordding to the original paper
 optimState = {
   learningRate = opt.learningRate,
   weightDecay = opt.weightDecay,
   momentum = opt.momentum,
+  nesterov = true,
+  dampening = 0,
   learningRateDecay = opt.learningRateDecay,
 }
 
@@ -124,15 +128,17 @@ function train()
 
   --[[
   -- halve learning rate every "epoch_step" epochs
-  if epoch % opt.epoch_step == 0 then optimState.learningRate = optimState.learningRate/2 end
- --]]
- -- at epoch 1, we set the learning rate to 0.001 to warm up the training 
- if epoch == 1 then optimState.learningRate = 0.001 end
- -- then we raise the learning rate to 0.1 after the first epoch  
- if epoch == 2 then optimState.learningRate = 0.01 end 
- -- according to original paper, we will divide the learning rate by 10 at 80 epochs and 120 epochs
-  if epoch == 20 then optimState.learningRate = optimState.learningRate/10 end 
-  if epoch == 40 then optimState.learningRate = optimState.learningRate/10 end  
+   if epoch % opt.epoch_step == 0 then optimState.learningRate = optimState.learningRate/2 end
+  --]]
+  -- at epoch 1, we set the learning rate to 0.001 to warm up the training 
+  if epoch == 1 then optimState.learningRate = 0.001 end
+  
+  -- then we raise the learning rate to 0.1 after the first epoch  
+  if epoch == 2 then optimState.learningRate = 0.1 end 
+  -- according to original paper, we will divide the learning rate by 10 at 80 epochs and 120 epochs
+  if epoch == 80 then optimState.learningRate = optimState.learningRate/10 end
+
+  if epoch == 120 then optimState.learningRate = optimState.learningRate/10 end  
 
 
 
