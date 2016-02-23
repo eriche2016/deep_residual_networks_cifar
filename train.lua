@@ -13,12 +13,12 @@ opt = lapp[[
    -s,--save                  (default "logs")      subdirectory to save logs
    -b,--batchSize             (default 128)          batch size
    -r,--learningRate          (default 0.1)        learning rate
-   --learningRateDecay        (default 0)           no learning rate decay at the original paper 
+   --learningRateDecay        (default 0.0)           no learning rate decay at the original paper 
    --weightDecay              (default 0.0001)      weightDecay
    -m,--momentum              (default 0.9)         momentum
    --epoch_step               (default 1000)          epoch step, ie halve the learning rateevery 1000 epochs, currently not use, just set it high
    --model                    (default residual_network)     model name
-   --max_epoch                (default 160)           maximum number of epochs, the original paper terminates at 160 epcohs(ie 64k iterations)
+   --max_epoch                (default 200)           maximum number of epochs, the original paper terminates at 160 epcohs(ie 64k iterations)
    --backend                  (default cudnn)            backend
    --is_batch_norm            (default true)          add batch normalization
    --gpuid                    (default 0)             gpu used for training 
@@ -115,7 +115,7 @@ optimState = {
   weightDecay = opt.weightDecay,
   momentum = opt.momentum,
   nesterov = true,
-  dampening = 0,
+  dampening = 0.0,
   learningRateDecay = opt.learningRateDecay,
 }
 
@@ -131,15 +131,18 @@ function train()
    if epoch % opt.epoch_step == 0 then optimState.learningRate = optimState.learningRate/2 end
   --]]
   -- at epoch 1, we set the learning rate to 0.001 to warm up the training 
-  if epoch == 1 then optimState.learningRate = 0.001 end
+  -- if epoch == 1 then optimState.learningRate = 0.001 end
   
   -- then we raise the learning rate to 0.1 after the first epoch  
-  if epoch == 2 then optimState.learningRate = 0.1 end 
+  if epoch < 82 then 
+      optimState.learningRate = 0.1  
   -- according to original paper, we will divide the learning rate by 10 at 80 epochs and 120 epochs
-  if epoch == 80 then optimState.learningRate = optimState.learningRate/10 end
+  elseif epoch <122 then 
+      optimState.learningRate = 0.01   -- learningRate = 0.01 afterwards
 
-  if epoch == 120 then optimState.learningRate = optimState.learningRate/10 end  
-
+  else 
+      optimState.learningRate = 0.001   -- learningRate = 0.001 afterwards
+  end 
 
 
   print(c.blue '==>'.." online epoch # " .. epoch .. ' [batchSize = ' .. opt.batchSize .. ']')
@@ -185,10 +188,10 @@ function train()
   confusion:updateValids()
 
   -- dur_in_sec = torch.toc(tic)  
-  print(('Train accuracy: '..c.cyan'%.2f'..' %%\t time: %.2f s'):format(
-        confusion.totalValid * 100, torch.toc(tic)))
+  print(('Train error: '..c.cyan'%.2f'..' %%\t time: %.2f s'):format(
+        100-confusion.totalValid * 100, torch.toc(tic)))
 
-  train_acc = confusion.totalValid * 100
+  train_err = 100-confusion.totalValid * 100
 
   confusion:zero()
   epoch = epoch + 1
@@ -205,11 +208,11 @@ function test()
   end
 
   confusion:updateValids()
-  print('Test accuracy:', confusion.totalValid * 100)
+  print('Test err:', 100-confusion.totalValid * 100)
   
   if testLogger then
     paths.mkdir(opt.save)
-    testLogger:add{train_acc, confusion.totalValid * 100}
+    testLogger:add{train_err, 100-confusion.totalValid * 100}
 
     testLogger:style{'-','-'}
     testLogger:plot()
