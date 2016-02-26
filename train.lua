@@ -33,7 +33,8 @@ print(opt)
 torch.manualSeed(opt.seed)
 
 -- currently no gpu 
-torch.setdefaulttensortype('torch.FloatTensor')
+--  use float tensor will cause torch.rand generates 1.0, coz double to float...
+-- torch.setdefaulttensortype('torch.FloatTensor')
 
 
 if opt.gpuid >= 0 then 
@@ -61,9 +62,9 @@ print(c.blue '==>' ..' configuring model and criterion')
 
 local model = nn.Sequential() 
 -- simple data argumentation 
- model:add(nn.BatchFlip():float())
+ model:add(nn.BatchFlip():double())
 
-model:add(nn.Copy('torch.FloatTensor','torch.CudaTensor'):cuda())
+model:add(nn.Copy('torch.DoubleTensor','torch.CudaTensor'):cuda())
 if string.len(opt.init_from) > 0 then -- load pretrained model 
     print('loading model from checkpoint' .. opt.init_from)
     local checkpoint_model3 = torch.load(opt.init_from) 
@@ -71,7 +72,8 @@ if string.len(opt.init_from) > 0 then -- load pretrained model
     
 else -- construct the model from scratch     
     -- load from script 
-    sub_model = paths.dofile('models/'..opt.model..'.lua')
+    -- sub_model = paths.dofile('models/'..opt.model..'.lua')
+    sub_model = paths.dofile('gcr_model/'..'gcr_model'..'.lua')
     sub_model = sub_model:cuda() 
 
     model:add(sub_model)
@@ -94,8 +96,34 @@ print(model)
 
 print(c.blue '==>' ..' loading data')
 provider = torch.load 'provider.t7'
-provider.trainData.data = provider.trainData.data:float()
-provider.testData.data = provider.testData.data:float()
+-- thought double, cause more memory, but may be more accurate for parameters
+provider.trainData.data = provider.trainData.data:double() 
+provider.testData.data = provider.testData.data:double() 
+
+local data_provider_sample = true
+
+data_size = provider.trainData.data:size(1)
+data_size2 = provider.trainData.labels:size(1)
+ 
+assert(data_size == data_size2, 'error occurs, data and label size not equal')
+
+print('training dataset size #' .. data_size)
+
+-- scheme 1: sample data for training 
+function getTrainBatch(batchSize) 
+
+    -- turns out that torch.rand (using default prarms) can generate 1.000, which is anoying(contadicts the docs)
+    -- and so does torch.uniform method. so here i will use the below to generates ints in the range 1 ... 50000
+    local indices = torch.LongTensor(batchSize):random(1, 50000)
+   
+    -- note that here we use clone, otherwise may modify the original training data, which is very hazard
+    local inputs = provider.trainData.data:index(1,indices):clone() 
+    local targets = provider.trainData.labels:index(1,indices):clone() 
+
+    return inputs, targets 
+end 
+
+
 
 confusion = optim.ConfusionMatrix(10)
 
@@ -125,7 +153,7 @@ collectgarbage()
 function train()
   model:training()
   epoch = epoch or 1
-
+   
   --[[
   -- halve learning rate every "epoch_step" epochs
    if epoch % opt.epoch_step == 0 then optimState.learningRate = optimState.learningRate/2 end
@@ -134,10 +162,10 @@ function train()
   -- if epoch == 1 then optimState.learningRate = 0.001 end
   
   -- then we raise the learning rate to 0.1 after the first epoch  
-  if epoch < 82 then 
+  if epoch < 81 then  
       optimState.learningRate = 0.1  
   -- according to original paper, we will divide the learning rate by 10 at 80 epochs and 120 epochs
-  elseif epoch <122 then 
+  elseif epoch < 121 then 
       optimState.learningRate = 0.01   -- learningRate = 0.01 afterwards
 
   else 
@@ -148,6 +176,46 @@ function train()
   print(c.blue '==>'.." online epoch # " .. epoch .. ' [batchSize = ' .. opt.batchSize .. ']')
 
   local targets = torch.CudaTensor(opt.batchSize)
+
+if data_provider_sample then 
+    tic = torch.tic() 
+   
+    local num_processed = 0 
+    
+    while true do 
+         xlua.progress(num_processed, data_size)
+         num_processed = num_processed + opt.batchSize
+
+         local inputs, targets_raw = getTrainBatch(opt.batchSize)
+
+         targets = targets_raw:cuda()
+
+         local feval = function(x)
+              if x ~= parameters then parameters:copy(x) end
+               gradParameters:zero()
+      
+               -- forward pass 
+               local outputs = model:forward(inputs)
+
+               local f = criterion:forward(outputs, targets)
+
+               -- backward pass 
+               local df_do = criterion:backward(outputs, targets)
+               model:backward(inputs, df_do)
+
+               confusion:batchAdd(outputs, targets)
+
+               return f,gradParameters
+          end
+
+         optim.sgd(feval, parameters, optimState) 
+
+         --]]
+         
+         if num_processed >= data_size  then break end 
+    end 
+
+else 
   -- split method will split LongTensor(vector) to a table of Tensor of length opt.batchSize 
   -- indices will be a table of LongTensor of length opt.batchSize, each element of the Tensor will be fed to the model all at once 
   local indices = torch.randperm(provider.trainData.data:size(1)):long():split(opt.batchSize)
@@ -156,7 +224,8 @@ function train()
   indices[#indices] = nil
  
   -- start timer    
-  local tic = torch.tic()
+  -- local tic = torch.tic()
+  tic = torch.tic() 
 
   for t,v in ipairs(indices) do
     xlua.progress(t, #indices)
@@ -184,16 +253,19 @@ function train()
     end
     optim.sgd(feval, parameters, optimState)
   end
+end 
+
+
   -- update related measure of the confusion table 
   confusion:updateValids()
-
-  -- dur_in_sec = torch.toc(tic)  
+    
   print(('Train error: '..c.cyan'%.2f'..' %%\t time: %.2f s'):format(
         100-confusion.totalValid * 100, torch.toc(tic)))
 
   train_err = 100-confusion.totalValid * 100
 
   confusion:zero()
+
   epoch = epoch + 1
 end
 
@@ -274,6 +346,8 @@ end
 
 for i=1,opt.max_epoch do
     train()
+    collectgarbage() 
+
     test()
     -- collect garbage once an epoch, maybe two long, but it is better than nothing, why not
     collectgarbage() 
