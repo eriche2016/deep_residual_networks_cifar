@@ -1,4 +1,4 @@
-- deep_residual_networks_cifar
+# deep_residual_networks_cifar
 
 1. when run this code, you need to update your torch and packages like nn, cutorch, cunn, cudnn to the latest versions
   1. luarocks install torch 
