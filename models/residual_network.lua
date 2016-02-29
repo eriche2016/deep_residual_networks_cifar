@@ -1,5 +1,9 @@
 require 'nn'
 
+-- using initialization 
+
+local nninit = require 'nninit'
+
 -- easy for debugging, coz provide opt.is_batch_norm paramters
 if not opt then 
     cmd = torch.CmdLine() 
@@ -24,36 +28,43 @@ function make_residual_block(nfin, nfout, half, is_batch_norm)
 
     -- for every residual block, there will be n layers 
     residual_block_par1 = nn.Sequential() 
-    residual_block_par1:add(nn.SpatialConvolution(nfin, nfout, 3, 3, stride, stride, 1, 1))    
-    if opt.is_batch_norm then residual_block_par1:add(nn.SpatialBatchNormalization(nfout)) end 
+    residual_block_par1:add(nn.SpatialConvolution(nfin, nfout, 3, 3, stride, stride, 1, 1):init('weight', nninit.kaiming, {gain='relu'}) 
+                      :init('bias', nninit.constant, 0))
+
+    if opt.is_batch_norm then residual_block_par1:add(nn.SpatialBatchNormalization(nfout):init('weight', nninit.normal, 1.0, 0.002):init('bias', nninit.constant, 0)) end 
    
     residual_block_par1:add(nn.ReLU(true))
 
-    residual_block_par1:add(nn.SpatialConvolution(nfout, nfout, 3, 3, 1, 1, 1, 1)) 
+    residual_block_par1:add(nn.SpatialConvolution(nfout, nfout, 3, 3, 1, 1, 1, 1):init('weight', nninit.kaiming, {gain='relu'}) 
+                      :init('bias', nninit.constant, 0)) 
 
      -- whether need to add bach normalization 
-    if opt.is_batch_norm then residual_block_par1:add(nn.SpatialBatchNormalization(nfout)) end    
+    if opt.is_batch_norm then residual_block_par1:add(nn.SpatialBatchNormalization(nfout):init('weight', nninit.normal, 1.0, 0.002):init('bias', nninit.constant, 0)) end    
     
     if half == false then 
          residual_block_par2 = nn.Identity() 
-    else 
-         -- choice 1: test error can achieve: 
+    else
+         
+         -- choice 1: test error can achieve:0.0725 by using pretrained model for epoch 200  
+         
          residual_block_par2 = nn.Sequential() 
-         residual_block_par2:add(nn.SpatialConvolution(nfin, nfout, 1, 1, 2, 2, 0, 0)) -- no pad
-         -- whether need to add bach normalization 
-         if opt.is_batch_norm then residual_block_par2:add(nn.SpatialBatchNormalization(nfout)) end    
+         residual_block_par2:add(nn.SpatialConvolution(nfin, nfout, 1, 1, 2, 2, 0, 0):init('weight', nninit.kaiming, {gain='relu'}) 
+                      :init('bias', nninit.constant, 0))-- no pad
 
-         --[[ 
-         -- choice 2: test acc can achieve: 91.96%(using pretrained model) 
-         -- downsampling 
-         residual_block_par2 = nn.Sequential() 
+        -- whether need to add bach normalization
+        if opt.is_batch_norm then residual_block_par2:add(nn.SpatialBatchNormalization(nfout)) end 
+        
+         --[[
+         -- choice 2: test err can achieve: 0.0804%(using pretrained model) 
+         --  but overall, choice 2 leads to slightly worse results 
+         residual_block_par2 = nn.Sequential()
+         -- what about change SpatialAveragePooling to max Pooling?
          residual_block_par2:add(nn.SpatialAveragePooling(1, 1, 2, 2))
 
          if nfout > nfin then 
                 residual_block_par2:add(nn.Padding(1, (nfout - nfin), 3))
          end 
          --]]
-    
     end 
    
     residual_block_cat:add(residual_block_par1)
@@ -63,6 +74,8 @@ function make_residual_block(nfin, nfout, half, is_batch_norm)
     -- add F and x together 
     residual_block = nn.Sequential() 
     residual_block:add(residual_block_cat)
+
+    
     residual_block:add(nn.CAddTable())
 
     residual_block:add(nn.ReLU(true))
@@ -73,7 +86,9 @@ end
 local model = nn.Sequential() 
 -- for cifar data, every images is a rgb images
 -- input images: 3 x 32 x 32 for each images 
-model:add(nn.SpatialConvolution(3, 16, 3, 3, 1, 1, 1, 1))
+model:add(nn.SpatialConvolution(3, 16, 3, 3, 1, 1, 1, 1):init('weight', nninit.kaiming, {gain='relu'}) 
+                      :init('bias', nninit.constant, 0))
+
 if opt.is_batch_norm then model:add(nn.SpatialBatchNormalization(16)) end 
 model:add(nn.ReLU(true))
 -- make residual part of the whole model 

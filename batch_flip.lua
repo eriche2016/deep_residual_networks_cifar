@@ -13,8 +13,10 @@ function BatchFlip:__init()
 end
 
 function BatchFlip:updateOutput(inputs)
+
     if self.train then
         self.output:resizeAs(inputs):copy(inputs):zero() 
+   
         --[[ method 1, can acheve test err:  
         for i=1,inputs:size(1) do
             if torch.uniform() < 0.5 then
@@ -25,22 +27,20 @@ function BatchFlip:updateOutput(inputs)
         self.temp = self.module:forward(inputs)
    
         for i = 1, self.temp:size(1) do
-            -- for every image, we need to random crop a 3 x 32 x 32 image
+           -- for every image, we need to random crop a 3 x 32 x 32 image
            -- crop out a 3 x 32 x 32 images 
            local start_x = torch.random(4)
            local start_y = torch.random(4)
-
-
-            image.crop(self.output[i], self.temp[i], start_x, start_y, start_x+32, start_y+32)
+           image.crop(self.output[i], self.temp[i], start_x, start_y, start_x+32, start_y+32)
         end 
+
         --]]
+    
         -- [[ method 2
-        for i = 1, inputs:size(1) do 
-            -- Horizontal flip!!
-            -- flip first
-            if torch.random(1,2) == 1 then 
-                self.output[i]:copy(image.hflip(self.output[i]))
-            end
+        -- Q: flip before the cropping(original paper), or cropping before flip, these are the two methods for data argumentations, what is the effect?
+        -- A: turns out that cropping before flip leads to better results?  
+    
+        for i = 1, inputs:size(1) do
 
             -- crop the images 
             -- i-th image in the inputs
@@ -52,14 +52,24 @@ function BatchFlip:updateOutput(inputs)
             local input_x = {math.max(1,   1 + xoffs),math.min(32, 32 + xoffs)}
             local data_x = {math.max(1,   1 - xoffs), math.min(32, 32 - xoffs)}
 
-            self.output[i][{{}, input_y, input_x }] = input[{ {}, data_y, data_x }]:clone() 
+            self.output[i][{{}, input_y, input_x }] = input[{ {}, data_y, data_x}] 
+             
+            -- Horizontal flip!!
+            -- flip first
+            if torch.random(1,2) == 1 then 
+                self.output[i]:copy(image.hflip(self.output[i]))
+            end
 
         end
-        collectgarbage() 
+        collectgarbage()
+
    -- ]]
     else -- testing mode, set is okay, because we never modify inputs here 
         self.output:set(inputs)
+        -- colectgarbage here 
+        collectgarbage()
     end
 
     return self.output
+
 end

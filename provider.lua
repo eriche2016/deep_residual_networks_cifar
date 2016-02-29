@@ -27,6 +27,7 @@ function Provider:__init(full)
      trainData.data[{ {i*10000+1, (i+1)*10000} }] = subset.data:t()
      trainData.labels[{ {i*10000+1, (i+1)*10000} }] = subset.labels
   end
+
   trainData.labels = trainData.labels + 1
 
   local subset = torch.load('cifar-10-batches-t7/test_batch.t7', 'ascii')
@@ -104,3 +105,15 @@ function Provider:normalize()
   testData.data:select(2,3):add(-mean_v)
   testData.data:select(2,3):div(std_v)
 end
+
+
+function Provider:simple_preprocess()
+  local trainData = self.trainData.data
+  local testData = self.testData.data
+
+  mean = trainData:mean(1)
+  std = trainData:std() 
+  
+  trainData:add(-mean:expandAs(trainData)):mul(1/std)
+  testData:add(-mean:expandAs(testData)):mul(1/std)
+end 

@@ -1,7 +1,14 @@
+-- using gcr model and pretrained model(160)(trained by using random sample data every time), then start at 82, for training,  achieve test error rate: 0.0678 
+-- using my model, random sample data for training everytime, and then using pretrained model of 200 epochs and then training with 1 epoch with lr = 0.01 with the same secheme
+-- can achieve test error rate: 0.0668, 
+-- but using gcr's model and code, can achieve, in order for comparisons see logs for more detail
 require 'xlua'
 require 'optim'
 require 'nn'
-require 'image' -- for data argumentation 
+require 'nngraph' -- for loading nngraph model
+require 'image'   -- for data argumentation 
+
+require 'cudnn'
 
 require 'batch_flip'
 
@@ -21,10 +28,9 @@ opt = lapp[[
    --max_epoch                (default 200)           maximum number of epochs, the original paper terminates at 160 epcohs(ie 64k iterations)
    --backend                  (default cudnn)            backend
    --is_batch_norm            (default true)          add batch normalization
-   --gpuid                    (default 0)             gpu used for training 
+   --gpuid                    (default 1)             gpu used for training 
    --seed                     (default 123)           seed for random number generator
    --init_from                (default '')            path to the pretrained model 
-
 ]]
 
 
@@ -34,7 +40,8 @@ torch.manualSeed(opt.seed)
 
 -- currently no gpu 
 --  use float tensor will cause torch.rand generates 1.0, coz double to float...
--- torch.setdefaulttensortype('torch.FloatTensor')
+
+torch.setdefaulttensortype('torch.FloatTensor')
 
 
 if opt.gpuid >= 0 then 
@@ -62,9 +69,9 @@ print(c.blue '==>' ..' configuring model and criterion')
 
 local model = nn.Sequential() 
 -- simple data argumentation 
- model:add(nn.BatchFlip():double())
+ model:add(nn.BatchFlip():float())
 
-model:add(nn.Copy('torch.DoubleTensor','torch.CudaTensor'):cuda())
+model:add(nn.Copy('torch.FloatTensor','torch.CudaTensor'):cuda())
 if string.len(opt.init_from) > 0 then -- load pretrained model 
     print('loading model from checkpoint' .. opt.init_from)
     local checkpoint_model3 = torch.load(opt.init_from) 
@@ -72,8 +79,8 @@ if string.len(opt.init_from) > 0 then -- load pretrained model
     
 else -- construct the model from scratch     
     -- load from script 
-    -- sub_model = paths.dofile('models/'..opt.model..'.lua')
-    sub_model = paths.dofile('gcr_model/'..'gcr_model'..'.lua')
+    sub_model = paths.dofile('models/'..opt.model..'.lua')
+    --sub_model = paths.dofile('gcr_model/'..'gcr_model'..'.lua')
     sub_model = sub_model:cuda() 
 
     model:add(sub_model)
@@ -96,9 +103,9 @@ print(model)
 
 print(c.blue '==>' ..' loading data')
 provider = torch.load 'provider.t7'
--- thought double, cause more memory, but may be more accurate for parameters
-provider.trainData.data = provider.trainData.data:double() 
-provider.testData.data = provider.testData.data:double() 
+
+provider.trainData.data = provider.trainData.data:float() 
+provider.testData.data = provider.testData.data:float() 
 
 local data_provider_sample = true
 
@@ -120,7 +127,8 @@ function getTrainBatch(batchSize)
     local inputs = provider.trainData.data:index(1,indices):clone() 
     local targets = provider.trainData.labels:index(1,indices):clone() 
 
-    return inputs, targets 
+    return inputs, targets
+
 end 
 
 
@@ -144,7 +152,6 @@ optimState = {
   momentum = opt.momentum,
   nesterov = true,
   dampening = 0.0,
-  learningRateDecay = opt.learningRateDecay,
 }
 
 -- good practice to collect garbage once in a while 
@@ -152,7 +159,7 @@ collectgarbage()
 
 function train()
   model:training()
-  epoch = epoch or 1
+  epoch = epoch or 122
    
   --[[
   -- halve learning rate every "epoch_step" epochs
@@ -162,10 +169,10 @@ function train()
   -- if epoch == 1 then optimState.learningRate = 0.001 end
   
   -- then we raise the learning rate to 0.1 after the first epoch  
-  if epoch < 81 then  
+  if epoch < 82 then  
       optimState.learningRate = 0.1  
   -- according to original paper, we will divide the learning rate by 10 at 80 epochs and 120 epochs
-  elseif epoch < 121 then 
+  elseif epoch < 122 then 
       optimState.learningRate = 0.01   -- learningRate = 0.01 afterwards
 
   else 
@@ -212,10 +219,12 @@ if data_provider_sample then
 
          --]]
          
-         if num_processed >= data_size  then break end 
+         if num_processed >= data_size  then break end
+
     end 
 
-else 
+else
+
   -- split method will split LongTensor(vector) to a table of Tensor of length opt.batchSize 
   -- indices will be a table of LongTensor of length opt.batchSize, each element of the Tensor will be fed to the model all at once 
   local indices = torch.randperm(provider.trainData.data:size(1)):long():split(opt.batchSize)
@@ -251,6 +260,7 @@ else
 
       return f,gradParameters
     end
+
     optim.sgd(feval, parameters, optimState)
   end
 end 
@@ -265,8 +275,8 @@ end
   train_err = 100-confusion.totalValid * 100
 
   confusion:zero()
-
   epoch = epoch + 1
+
 end
 
 function test()
@@ -327,17 +337,23 @@ function test()
 
   -- save model every 20 epochs
   if epoch % 20 == 0 then
+   
     -- before being save, need to convert cudnn to nn, so that we can load the model correctly  
+    -- convert nn model to model with cudnn backend
+    -- clone will may cause  too much gpu memory overheads
+    -- so before clone, we just clear the state, or maybe we donot have to clone 
+    -- but before we store it, we need to convert the model to that with nn backend 
+    -- so clone may be good if we donot want modify the original model 
+   
+    local checkpoint = model:get(3):clearState():clone() 
+    
     if opt.backend == 'cudnn' then
-         -- convert nn model to model with cudnn backend 
-         checkpoint = model:get(3):clone() 
          cudnn.convert(checkpoint, nn)
     end
     
-
     local filename = paths.concat(opt.save, 'checkpoint.t7')
     print('==> saving model to '..filename)
-    torch.save(filename, checkpoint:clearState())
+    torch.save(filename, checkpoint)
   end
 
   confusion:zero()
@@ -350,5 +366,5 @@ for i=1,opt.max_epoch do
 
     test()
     -- collect garbage once an epoch, maybe two long, but it is better than nothing, why not
-    collectgarbage() 
+    collectgarbage()
 end
