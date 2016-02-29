@@ -14,6 +14,7 @@
       * luarocks make 
 
 ###Note
-using gcr's code and model, can achive best training resluts till now, and also lowest test error rate is 
+This repository implements 56 layers residual network.
+using gcr's code and model(https://github.com/gcr/torch-residual-networks), can achive best training resluts till now, and also lowest test error rate is 
 0.0647. check it in logs/resNet1/  floder. 
 using my code, can achieve 0.0668 test error rate.  but with pretrained model of 200 epochs, and then training for 1 epoch with lr = 0.01, all the other stuff are the same. 
