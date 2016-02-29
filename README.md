@@ -9,9 +9,9 @@
   6. install cudnn
     * register and download cudnn, then install it(from nvidia website).
     * install torch bindings of cudnn
-    1. git clone https://github.com/soumith/cudnn.torch
-    2. cd cudnn.torch 
-    3. luarocks make 
+      (1) git clone https://github.com/soumith/cudnn.torch
+      (2) cd cudnn.torch 
+      (3) luarocks make 
 
 ###Note
 using gcr's code and model and modify it little bit, can achive best training resluts till now, and also lowest test error rate is 
